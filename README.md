@@ -11,6 +11,7 @@ As far as clening the data there wasn't much to clean. The data came in pretty g
 
 **Modleing**
 I choose to use Linear and Logistic Modeling for the data. Logistic worked best becuase it had better predicting power when it came to predicting holding or selling .
-
+**Results and Conclusion**
 I ran two models One with all of the included fields above and one with only those variables that were significant in the first model and I was able to get about 51% accuracy. Also, I used the AUC score to determine if the model is usuable.
+The data was hard to wrangle because of its size and my experience. It was definitely eye-opening and a great learning experience.
 
