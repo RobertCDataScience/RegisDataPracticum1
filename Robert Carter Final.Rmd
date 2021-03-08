@@ -1,0 +1,183 @@
+---
+title: "Robert Carter Final Presentation Data Science Praticum"
+author: "Robert Carter"
+date: "3/8/2021"
+output: html_document
+---
+
+The data that I am working with is the Jane Street Data Market Predicition Data from Kaggle. I am going to try and create a model to predict whether to trade or not.
+
+Loading in Libraries for Analysis
+```{r}
+library(tidyverse)
+library(data.table)
+library(timereg)
+library(rlang)
+library(torch)
+library(epiDisplay)
+```
+
+
+Loading two of the main data sets. I am reducing mu dataset to 1,000,000 records so that I am able to get results without killing my machince. The Train dataset has over 2 million rows.
+```{r}
+train <- fread("/Users/robertcarter/Desktop/jane-street-market-prediction/train.csv", nrows = 1000000)
+features <- fread("/Users/robertcarter/Desktop/jane-street-market-prediction/features.csv")
+```
+
+
+I am going to start out with some simple analysis of the data to get familiar. All of the data is numeric. The data variable goes from 0 to 81, representing the day it was traded since its purchase. Jane Street places 0 in the data set for trades that were missing a date to fill the data. I don't think those trades should be used to evaluate the model so I will take a look and see if the information is worth keeping. I also am going to work mainly with resp as it represent the return on the trade. 
+```{r}
+summary(train)
+```
+
+Going to check how many rows do nothave 0 in the data to make sure there is enough data to evaluate. Rows with zero take up about 19% of the data. By removing the 0 we will still have a significant amount of data to complete our analysis.
+```{r}
+length(train$weight[train$weight != 0])
+length(train$weight[train$weight == 0])/nrow(train)
+```
+
+Now we are going to take a look at the number of trades by date. It looks like the trades are pretty spread out evenly. I bulk of the trades happen around day 40.
+```{r}
+trades_by_date <- train[ , .(count = .N), by=date]
+p <- ggplot(data = trades_by_date, aes(x = date, y = count))
+p + geom_line(color = "blue") 
+
+```
+
+Just taking an additional look at the trades. Majority of the trades are made around the 44th and 45th day. It seems like holding the trades to these days could potentialy be the best amount of time to hold.
+```{r}
+tab1(train$date, sort.group = "decreasing", cum.percent = TRUE)
+```
+
+Checking the mean resp for weights greater than 0 and weights that equal zero. It looks like the mean is significantly higher for the weights without zero so my theory holds true and I will remove the trades that have zero weight.
+```{r}
+mean(train$resp[train$weigh>0])
+mean(train$resp[train$weigh==0])
+```
+
+Going to load the dataset with trade weights greater than 0 and update the train table.
+```{r}
+train_no0 <- train[which(train$weight > 0),]
+train <- train_no0
+```
+
+Going to take a quick look at weights. It appears that a majority of the weights have a lower value
+```{r}
+p <- ggplot(train, aes(x = weight))
+p + geom_histogram( bins = 50)
+```
+names(train)
+Taking a 
+```{r}
+
+```
+
+Now we are going to start preparing the data for linear and logistic regrerssion. I am looking at both to see the significant fields in the data. Also, I am going to scale the data to stardardize the data and clean up any NA values. Also, I am going to break the data into a train and test set and make both y train and y test binomial for our logistic regression since we are trying to determine whether to trade or not trade.
+```{r}
+#grabbing only feature column
+feature_cols <- which(grepl("feature", colnames(train)))
+x <- train[, feature_cols, with = FALSE]
+#checking for NA
+any(is.na(x))
+
+for(j in 1:length(feature_cols)){
+  if(any(is.na(x[,j, with=FALSE]))){
+  }
+}
+
+for(j in 1:length(feature_cols)){
+  set(x, i = which(is.na(x[[j]])), j = j, value = mean(train[[j]], na.rm=TRUE))
+}
+#Rechecking for NA
+any(is.na(x))
+
+x <- scale(x)
+
+train_end <- floor(0.75 * nrow(train))
+test_start <- train_end + 1
+test_end <- nrow(train)
+x_train <- x[1:train_end,]
+y_train <- as.numeric(train[["resp"]]>0)[1:train_end]
+x_test <- x[test_start:test_end,]
+y_test <- as.numeric(train[["resp"]]>0)[test_start:test_end]
+train_data <- cbind.data.frame(y_train, x_train)
+test_data <- cbind.data.frame(y_test, x_test)
+head(train_data[1:10,1:10])
+```
+names(train_data)
+
+Linear Regression has over 40 significant columns. This is just a simple model to check the significance of the data. A logistic regression will be better since the data is not linear that we are looking.
+```{r}
+#Linear Regression
+lmfit <- lm(resp ~ . -resp_1 - resp_2 - resp_3 - resp_4, data = train)
+summary(lmfit)
+```
+
+
+Logistic Regression to get accuracy of data. The data was spilt into training and test datasets. Going to train the model first. Then run the test data to see what our accuracy will be.There seems to be quite a few significanrt varaibles here as well as in the linear regression. Logistic regression is better for this data because we are trying to determine wheter to trade or not trade therefore we set the family to bionomial since we are only looking at two option. It turns out that we were able to get a 51 percent accuracy.
+```{r}
+glm.fit <- glm(y_train ~ ., data = train_data, family = binomial)
+summary(glm.fit)
+glm.probs <- predict(glm.fit, newdata = test_data, type=c("response"))
+if (!require(pROC)) install.packages("pROC", verbose=TRUE)
+auc <- roc(y_test ~ glm.probs, data = cbind.data.frame(y_test, x_test))
+auc 
+glm.pred <- ifelse(glm.probs > 0.5, 1, 0)
+mean(glm.pred == y_test) 
+
+```
+
+
+Last, I am going to retry the logistic model but only using the significant fields to see if that will increase the accuracy.
+```{r}
+#using only significant data
+train_sig <-  dplyr::select(train, date, weight, resp, feature_0, feature_1, feature_2,feature_3, feature_4, feature_7, feature_8, feature_9, feature_10,
+                            feature_17, feature_18, feature_19, feature_20,feature_27, feature_28,feature_29, feature_30, feature_31, feature_32, feature_37,
+                            feature_38, feature_39, feature_40, feature_43, feature_44,feature_45, feature_46, feature_48, feature_49, feature_53, feature_54,
+                            feature_55, feature_57, feature_62, feature_63, feature_64, feature_67,feature_68, feature_69,feature_71, feature_77, feature_86, feature_92,
+                            feature_96, feature_97, feature_101, feature_107, feature_108, feature_109, feature_110, feature_116, feature_118, feature_119)
+```
+
+
+After rereunning the logistic regression model with only significant data from before the results became slightly worse. The maximum model we were able to produce had 51 percent accuracy.
+```{r}
+#resetting x
+feature_cols2 <- which(grepl("feature", colnames(train_sig)))
+x2 <- train_sig[, feature_cols2, with = FALSE]
+any(is.na(x2))
+
+for(j in 1:length(feature_cols2)){
+  if(any(is.na(x2[,j, with=FALSE]))){
+
+  }
+}
+
+for(j in 1:length(feature_cols2)){
+  set(x2, i = which(is.na(x2[[j]])), j = j, value = mean(train_sig[[j]], na.rm=TRUE))
+}
+
+any(is.na(x2))
+
+x2 <- scale(x2)
+
+train_end2 <- floor(0.8 * nrow(train_sig))
+test_start2 <- train_end2 + 1
+test_end2 <- nrow(train_sig)
+x_train2 <- x2[1:train_end2,]
+y_train2 <- as.numeric(train_sig[["resp"]]>0)[1:train_end2]
+x_test2 <- x2[test_start2:test_end2,]
+y_test2 <- as.numeric(train_sig[["resp"]]>0)[test_start2:test_end2]
+train_data2 <- cbind.data.frame(y_train2, x_train2)
+test_data2 <- cbind.data.frame(y_test2, x_test2)
+
+
+glm.fit2 <- glm(y_train2 ~ ., data = train_data2, family = binomial)
+
+glm.probs2 <- predict(glm.fit2, newdata = test_data2, type=c("response"))
+if (!require(pROC)) install.packages("pROC", verbose=TRUE)
+auc2 <- roc(y_test2 ~ glm.probs2, data = cbind.data.frame(y_test2, x_test2))
+auc2 
+glm.pred2 <- ifelse(glm.probs2 > 0.5, 1, 0)
+mean(glm.pred2 == y_test2)
+
+```
